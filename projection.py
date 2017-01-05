@@ -1,13 +1,16 @@
 # coding=utf-8
 
 import numpy as np
-import math
+import math, copy
 from time import time
 from scipy.misc import imread,imsave
 
 ############################################################################
 #                               Projection
 ############################################################################
+
+RAD_2_DEG = 180/math.pi
+
 
 def projection_simple(img):
     print 'Projection: simple'
@@ -36,6 +39,7 @@ def projection_simple(img):
             image[x % n, y % m] = img[i, j]
 
     return image
+
 
 def projection_cylindrique_classique(img):
     print 'Projection: projection_cylindrique_classique'
@@ -310,7 +314,7 @@ def projection(filename):
 #                               ROTATION
 ############################################################################
 
-def rotation_image(img):
+def rotation_image(img, n_norm):
     print 'rotation_image'
     n, m, d = img.shape
     image = np.zeros([n, m, 3])
@@ -326,6 +330,15 @@ def rotation_image(img):
     cos_angle2 = math.cos(2*angle_rotation)
     sin_angle2 = math.sin(2*angle_rotation)
     m_d2 = m/2.0
+
+    # n_norm = np.asarray([-0.45999999999999996, 0.7600000000000002, -1])
+    # n_norm = np.asarray([0.040000000000000036, 0.98, -1])
+    n_norm /= np.linalg.norm(n_norm)
+    rot_z, rot_y = find_angle2(n_norm)
+    cos_rot_z = math.cos(rot_z)
+    sin_rot_z = math.sin(rot_z)
+    cos_rot_y = math.cos(rot_y)
+    sin_rot_y = math.sin(rot_y)
 
     for i in range(0, n):
         theta = i*theta_step            # [0, Pi]
@@ -344,8 +357,13 @@ def rotation_image(img):
             # x2 = x
             # y2 = y * cos_theta - z * sin_theta
             # z2 = y * sin_theta + z * cos_theta
-            x2, y2, z2 = rotation_3d_z(x, y, z, cos_angle2, -sin_angle2)
-            x2, y2, z2 = rotation_3d_x(x2, y2, z2, cos_angle, sin_angle)
+            # x2, y2, z2 = rotation_3d_z(x, y, z, cos_angle2, -sin_angle2)
+            # x2, y2, z2 = rotation_3d_x(x2, y2, z2, cos_angle, sin_angle)
+
+            # x2, y2, z2 = rotation_3d_vector(x, y, z, n_norm[0], n_norm[1], n_norm[2], cos_rot, sin_rot)
+            x2, y2, z2 = rotation_3d_z(x, y, z, cos_rot_z, sin_rot_z)
+            x2, y2, z2 = rotation_3d_y(x2, y2, z2, cos_rot_y, sin_rot_y)
+            x2, y2, z2 = rotation_3d_x(x2, y2, z2, -1.0, 0.0)
 
             # Convert to Spherical coordinate
             if z2 <= -1:
@@ -386,12 +404,76 @@ def rotation_3d_z(x, y, z, cos_r, sin_r):
     return x2, y2, z2
 
 
+def rotation_3d_vector(x, y, z, nx, ny, nz, cos_phi, sin_phi):
+    cos_phi_1 = 1-cos_phi
+
+    # Rodrigues' rotation formula
+    m1 = [cos_phi + (1-cos_phi)*nx*nx,      cos_phi_1*nx*ny - sin_phi*nz,       cos_phi_1*nx*nz + sin_phi*ny]
+    m2 = [cos_phi_1*nx*ny + sin_phi*nz,     cos_phi + cos_phi_1*ny*ny,          cos_phi_1*ny*nz - sin_phi*nx]
+    m3 = [cos_phi_1*nx*nz - sin_phi*ny,     cos_phi_1*ny*nz + sin_phi*nx,       cos_phi + cos_phi_1*nz*nz   ]
+    M = np.asarray([m1, m2, m3])
+    X = np.asarray([x, y, z])
+    X2 = M.dot(X)
+    # print X
+    # print M
+    # print X2
+    return X2[0], X2[1], X2[2]
+
+
+def find_angle(n):
+    print "find_angle"
+    print "n ", n
+    # Z rotation:
+    n2 = copy.deepcopy(n)
+    n2[2] = 0
+    n2 /= np.linalg.norm(n2)
+    phi = math.pi/2.0 - math.acos(np.dot(np.asarray([1.0, 0.0, 0.0]), n2))
+
+    # Y rotation:
+    x2, y2, z2 = rotation_3d_z(n[0], n[1], n[2], math.cos(phi), math.sin(phi))
+    n3 = copy.deepcopy(np.asarray([x2, y2, z2]))
+    print "n3", n3
+    n3[0] = 0
+    n3 /= np.linalg.norm(n3)
+    theta = math.pi/2.0 - math.acos(np.dot(np.asarray([0.0, 0.0, 1.0]), n3))
+
+    x2, y2, z2 = rotation_3d_x(x2, y2, z2, math.cos(theta), math.sin(theta))
+    print "n4", np.asarray([x2, y2, z2])
+    print int(phi*RAD_2_DEG), int(theta*RAD_2_DEG)
+
+    return -phi, -theta
+
+
+def find_angle2(n):
+    print "find_angle2"
+    print "nb", n
+    # Z rotation:
+    n2 = copy.deepcopy(n)
+    n2[2] = 0
+    n2 /= np.linalg.norm(n2)
+    phi = math.acos(np.dot(np.asarray([1.0, 0.0, 0.0]), n2))
+
+    # Y rotation:
+    x2, y2, z2 = rotation_3d_z(n[0], n[1], n[2], math.cos(phi), -math.sin(phi))
+    n3 = copy.deepcopy(np.asarray([x2, y2, z2]))
+    print "n3", n3
+    n3[1] = 0
+    n3 /= np.linalg.norm(n3)
+    theta = math.acos(np.dot(np.asarray([0.0, 0.0, 1.0]), n3))
+
+    x2, y2, z2 = rotation_3d_y(x2, y2, z2, math.cos(theta), -math.sin(theta))
+    print "n4", np.asarray([x2, y2, z2])
+    print int(phi*RAD_2_DEG), int(theta*RAD_2_DEG)
+
+    return -phi, -theta
+
+
 def test_rotation(filename):
     img = imread(filename)
     filename = '.'.join(filename.split('.')[:-1])
     image = rotation_image(img)
-    # imsave(filename + "_rot_x.jpg", image)
-    imsave(filename + "_rot_zx2.jpg", del_black_pixel(image))
+    # imsave(filename + "_rot_n.jpg", image)
+    imsave(filename + "_rot_n7_.jpg", del_black_pixel(image))
 
 ############################################################################
 #                               Clean Image
@@ -405,13 +487,12 @@ def del_black_pixel(img):
     for i in range(0, n):
         for j in range(0, m):
             if img[i, j, 0] == 0 and img[i, j, 1] == 0 and img[i, j, 2] == 0:
-                img[i, j] = new_pixel2(img, i, j)
+                img[i, j] = new_pixel2(img, i, j, n, m)
 
     return img
 
 
-def new_pixel(img, i, j):
-    n, m, d = img.shape
+def new_pixel(img, i, j, n, m):
     pixel = img[i, j]
     nb_pixel = 0
 
@@ -455,8 +536,7 @@ def new_pixel(img, i, j):
     return pixel
 
 
-def new_pixel2(img, i, j):
-    n, m, d = img.shape
+def new_pixel2(img, i, j, n, m):
     pixel = img[i, j]
     nb_pixel = 0
 
@@ -507,9 +587,59 @@ if __name__ == '__main__':
     filename = "360_1079.jpg"
     filename = "360_0878.jpg"
     filename = "360_0871.jpg"
+    filename = "360_0215_rot_zx2.jpg"
     filename = "360_0215.jpg"
-    projection(path + filename)
+    filename = "360_0871_rot_zx2.jpg"
+    # projection(path + filename)
     # test_rotation(path + filename)
+    #
+    # n = np.asarray([-0.45999999999999996, 0.7600000000000002, -1])
+    # n = np.asarray([0.040000000000000036, 0.98, -1])
+    # n /= np.linalg.norm(n)
+    # find_angle(n)
+    # find_angle2(n)
+
+
+
+    print '\n<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<\n'
+
+    # n = np.asarray([0., 0., -1])
+    # find_angle(n)
+    # find_angle2(n)
+    # print
+    # n = np.asarray([0., 0., 1])
+    # find_angle(n)
+    # find_angle2(n)
+    print
+    n = np.asarray([1., 0., 0.])
+    find_angle(n)
+    find_angle2(n)
+    print
+    n = np.asarray([0.5, 0.5, 0])
+    find_angle(n)
+    find_angle2(n)
+    print
+    n = np.asarray([0.5, 0., 0.5])
+    find_angle(n)
+    find_angle2(n)
+    print
+    n = np.asarray([0., -0.5, 0.5])
+    find_angle(n)
+    find_angle2(n)
+    print
+    n = np.asarray([0.5, -0.5, 0])
+    find_angle(n)
+    find_angle2(n)
+    print
+    n = np.asarray([-0.5, 0., 0.5])
+    find_angle(n)
+    find_angle2(n)
+    print
+    n = np.asarray([0., 0.70710678, 0.70710678])
+    find_angle(n)
+    find_angle2(n)
+
+
 
     print("done in %0.3fs" % (time() - t0))
     print 'End'
